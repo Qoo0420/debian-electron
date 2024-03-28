@@ -1,0 +1,13 @@
+Index: chromium-102.0.5005.61/base/process/launch_posix.cc
+===================================================================
+--- chromium-102.0.5005.61.orig/src/base/process/launch_posix.cc
++++ chromium-102.0.5005.61/src/base/process/launch_posix.cc
+@@ -707,7 +707,7 @@ NOINLINE pid_t CloneAndLongjmpInChild(un
+   alignas(16) char stack_buf[PTHREAD_STACK_MIN];
+ #if defined(ARCH_CPU_X86_FAMILY) || defined(ARCH_CPU_ARM_FAMILY) ||   \
+     defined(ARCH_CPU_MIPS_FAMILY) || defined(ARCH_CPU_S390_FAMILY) || \
+-    defined(ARCH_CPU_PPC64_FAMILY)
++    defined(ARCH_CPU_PPC64_FAMILY) || defined(ARCH_CPU_RISCV_FAMILY)
+   // The stack grows downward.
+   void* stack = stack_buf + sizeof(stack_buf);
+ #else

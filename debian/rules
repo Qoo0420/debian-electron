@@ -1,0 +1,141 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -Wall -pedantic
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+# For utilities
+export RULES_electron_ver_major = 19
+export RULES_pkgname = electron-19
+export RULES_chromium_ver = 102.0.5005.167
+export RULES_deb_chromium_ver = 102.0.5005.115-1
+export RULES_electron_ver = 19.1.9
+
+export CC = clang-17
+export CXX = clang++-17
+export AR = ar
+export NM = nm
+
+# https://github.com/webpack/webpack/issues/14532
+export NODE_OPTIONS = --openssl-legacy-provider
+
+export DEB_CXXFLAGS_MAINT_STRIP = -g
+
+# facilitate deterministic builds
+export CFLAGS += -Wno-builtin-macro-redefined -Wno-unknown-warning-option -Wno-everything
+export CXXFLAGS += -Wno-builtin-macro-redefined -Wno-unknown-warning-option -Wno-everything
+export CPPFLAGS += -D__DATE__= -D__TIME__= -D__TIMESTAMP__=
+
+gn_args = \
+	custom_toolchain=\"//build/toolchain/linux/unbundle:default\" \
+	host_toolchain=\"//build/toolchain/linux/unbundle:default\" \
+	clang_use_chrome_plugins=false \
+	symbol_level=1 \
+
+# disabled features
+gn_args += \
+	is_debug=false \
+	use_goma=false \
+	use_sysroot=false \
+	use_libjpeg_turbo=true \
+	use_custom_libcxx=false \
+	use_gnome_keyring=false \
+	optimize_webui=false \
+	use_unofficial_version_number=false \
+	enable_vr=false \
+	enable_nacl=false \
+	enable_swiftshader=false \
+	dawn_use_swiftshader=false \
+	build_dawn_tests=false \
+	enable_reading_list=false \
+	enable_iterator_debugging=false \
+	enable_hangout_services_extension=false \
+	angle_has_histograms=false \
+	build_angle_perftests=false \
+	enable_js_type_check=false \
+	treat_warnings_as_errors=false \
+	is_cfi=false \
+	use_thin_lto=false \
+	chrome_pgo_phase=0 \
+
+# enabled features
+gn_args += \
+	is_clang=true \
+	use_gio=true \
+	is_official_build=true \
+	symbol_level=0 \
+	use_pulseaudio=true \
+	link_pulseaudio=true \
+	rtc_use_pipewire=true \
+	icu_use_data_file=true \
+	v8_enable_backtrace=true \
+	use_system_zlib=true \
+	use_system_lcms2=true \
+	use_system_libjpeg=true \
+	use_system_libpng=true \
+	use_system_freetype=true \
+	use_system_libopenjpeg2=true \
+	concurrent_links=1 \
+	proprietary_codecs=true \
+	ffmpeg_branding=\"Chrome\" \
+	disable_fieldtrial_testing_config=true \
+
+profile = Release
+profile_lower := $(shell echo $(profile) | tr A-Z a-z)
+
+# handle parallel build options
+njobs=1
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+njobs=$(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+endif
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	mkdir -p src/third_party/node/linux/node-linux-x64/bin
+	ln -sf /usr/bin/node src/third_party/node/linux/node-linux-x64/bin
+
+	mkdir -p src/third_party/jdk
+	ln -s /usr/lib/jvm/java-11-openjdk-$(shell dpkg-architecture -q DEB_HOST_ARCH) \
+		src/third_party/jdk/current
+
+	cd src && ../debian/scripts/unbundle.py
+
+	sed 's|@@ELECTRON_VER_MAJOR@@|$(RULES_electron_ver_major)|g' \
+		debian/electron.install.in > debian/electron-$(RULES_electron_ver_major).install
+	sed 's|@@ELECTRON_VER_MAJOR@@|$(RULES_electron_ver_major)|g' \
+		debian/electron.links.in > debian/electron-$(RULES_electron_ver_major).links
+
+override_dh_auto_build:
+	cd src && gn gen out/$(profile) --args="import(\"//electron/build/args/$(profile_lower).gn\") $(gn_args)"
+	cd src && ninja -j$(njobs) -C out/$(profile) electron
+	cd src && ninja -C out/$(profile) electron_dist_zip
+
+override_dh_auto_install:
+	mkdir dist
+	unzip src/out/Release/dist.zip -d dist
+	chmod u+s dist/chrome-sandbox
+	dh_auto_install
+
+override_dh_auto_clean:
+	rm -rf src/out
+	rm -rf src/third_party/node/linux/node-linux-x64/bin
+	rm -rf src/third_party/jdk
+	rm -f debian/electron-$(RULES_electron_ver_major).install
+	rm -f debian/electron-$(RULES_electron_ver_major).links
+
+# Unknown debugging section .debug_str_offsets
+override_dh_dwz:
+
+# *** Utilities ***
+
+fetch-repos:
+	debian/scripts/fetch-repos.sh
+
+create-source:
+	debian/scripts/create-source.sh
+
+pack-tarball:
+	debian/scripts/pack-tarball.sh
